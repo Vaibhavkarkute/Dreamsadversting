@@ -1,0 +1,57 @@
+name: DreamsAdverstings Production CI/CD
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: ap-south-1
+  ECS_CLUSTER: dreamsadverstings-production-cluster
+
+jobs:
+  backend-verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Dependencies
+        run: pip install -r backend/requirements.txt
+      - name: Run Full Backend & Production Upgrade Test Suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: pytest -v backend/tests/
+
+  docker-build-and-deploy:
+    needs: backend-verification
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Build & Push Backend & Frontend Images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -f infrastructure/docker/Dockerfile.backend -t $ECR_REGISTRY/dreamsadverstings-backend:$IMAGE_TAG ./backend
+          docker push $ECR_REGISTRY/dreamsadverstings-backend:$IMAGE_TAG
+          docker build -f infrastructure/docker/Dockerfile.frontend -t $ECR_REGISTRY/dreamsadverstings-frontend:$IMAGE_TAG ./frontend
+          docker push $ECR_REGISTRY/dreamsadverstings-frontend:$IMAGE_TAG
+      - name: Trigger Zero-Downtime ECS Fargate Rollout
+        run: |
+          aws ecs update-service --cluster $ECS_CLUSTER --service dreamsadverstings-backend --force-new-deployment
+          aws ecs update-service --cluster $ECS_CLUSTER --service dreamsadverstings-frontend --force-new-deployment
