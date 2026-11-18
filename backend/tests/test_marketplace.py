@@ -80,7 +80,8 @@ def test_05_media_filtering_marquis_pune_seed(kernel):
 
 
 def test_06_quotation_calculations_backend_authoritative(kernel):
-    sample_items = [kernel.inventory[0], kernel.inventory[83]]  # 1 static FL + 1 DOOH LED
+    led_item = next(a for a in kernel.inventory if a["id"] == "DA-PUN-086")
+    sample_items = [kernel.inventory[0], led_item]  # 1 static FL (DA-PUN-001) + 1 DOOH LED (DA-PUN-086)
     quote = calculate_quotation_pricing(
         [
             {**sample_items[0], "duration_months": 2},

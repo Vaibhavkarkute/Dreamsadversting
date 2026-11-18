@@ -109,6 +109,28 @@ def create_fastapi_app():
             "inventory_count": len(kernel.inventory),
         }
 
+
+    @router.post("/auth/portal-login")
+    def portal_login(payload: Dict):
+        try:
+            return kernel.portal_auth_service.authenticate_portal(
+                portal=payload.get("portal", "customer"),
+                email=payload.get("email", ""),
+                password=payload.get("password", ""),
+                two_factor_pin=payload.get("two_factor_pin"),
+                requested_staff_role=payload.get("requested_staff_role"),
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=401, detail=str(exc))
+
+    @router.get("/portals/directory")
+    def list_interconnected_portals():
+        return {
+            "portals": kernel.portal_auth_service.PORTAL_URLS,
+            "shared_bus_channel": "dreamsadverstings_live_bus",
+            "status": "connected",
+        }
+
     app.include_router(router)
     return app
 

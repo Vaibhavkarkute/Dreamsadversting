@@ -25,9 +25,19 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/backend
         run: pytest -v backend/tests/
 
-  docker-build-and-deploy:
+  docker-build-verification:
     needs: backend-verification
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Backend & Frontend Docker Builds
+        run: |
+          docker build -f infrastructure/docker/Dockerfile.backend -t dreamsadverstings-backend:ci ./backend
+          docker build -f infrastructure/docker/Dockerfile.frontend -t dreamsadverstings-frontend:ci ./frontend
+
+  aws-ecs-deploy:
+    needs: [backend-verification, docker-build-verification]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.ENABLE_AWS_ECS_DEPLOY == 'true'
     runs-on: ubuntu-latest
     permissions:
       id-token: write

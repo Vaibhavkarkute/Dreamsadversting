@@ -3,7 +3,6 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: dreamsadverstings-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-dreams_user}
@@ -21,7 +20,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: dreamsadverstings-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -35,7 +33,6 @@ services:
     build:
       context: ./backend
       dockerfile: ../infrastructure/docker/Dockerfile.backend
-    container_name: dreamsadverstings-backend
     restart: unless-stopped
     env_file:
       - .env.example
@@ -58,7 +55,6 @@ services:
     build:
       context: ./frontend
       dockerfile: ../infrastructure/docker/Dockerfile.frontend
-    container_name: dreamsadverstings-frontend
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1

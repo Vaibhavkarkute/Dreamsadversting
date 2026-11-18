@@ -12,6 +12,7 @@ from app.services.pricing_engine import calculate_quotation_pricing
 from app.services.staff_service import StaffManagementService
 from app.services.qr_and_review_service import QRBannerBookingService, CompletedOrderReviewService
 from app.services.analytics_and_expiry_service import ProductionAnalyticsAndExpiryService
+from app.services.portal_auth_service import MultiPortalAuthService
 
 
 class MarketplacePlatformKernel:
@@ -44,6 +45,7 @@ class MarketplacePlatformKernel:
         self.qr_service = QRBannerBookingService()
         self.review_service = CompletedOrderReviewService()
         self.analytics_service = ProductionAnalyticsAndExpiryService(self.inventory)
+        self.portal_auth_service = MultiPortalAuthService()
 
         # Configure default LED screens from seed inventory
         for item in self.inventory:
