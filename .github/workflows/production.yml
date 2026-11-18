@@ -1,0 +1,63 @@
+
+name: DreamsAdverstings CI
+
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-verification:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Run Backend Test Suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}/backend
+        run: |
+          pytest -v backend/tests/
+
+  docker-build-verification:
+    name: Docker Build Verification
+    needs: backend-verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Backend Image
+        run: |
+          docker build \
+            -f infrastructure/docker/Dockerfile.backend \
+            -t dreamsadverstings-backend:ci \
+            ./backend
+
+      - name: Build Frontend Image
+        run: |
+          docker build \
+            -f infrastructure/docker/Dockerfile.frontend \
+            -t dreamsadverstings-frontend:ci \
+            ./frontend
+
+      - name: Verify Docker Images
+        run: |
+          docker images
