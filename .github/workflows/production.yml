@@ -1,20 +1,28 @@
-
-name: DreamsAdverstings CI
+name: DreamsAdverstings CI & Website Deployment
 
 on:
   push:
     branches: [main, staging]
   pull_request:
     branches: [main]
+  workflow_dispatch: # Allows you to manually run the workflow from the Actions tab
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
+  # -----------------------------------------------------------------
+  # JOB 1: Run Python Backend Tests
+  # -----------------------------------------------------------------
   backend-verification:
     name: Backend Tests
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -35,11 +43,16 @@ jobs:
         run: |
           pytest -v backend/tests/
 
-  docker-build-verification:
-    name: Docker Build Verification
+  # -----------------------------------------------------------------
+  # JOB 2: Build Docker Images & Deploy Frontend to GitHub Pages
+  # -----------------------------------------------------------------
+  docker-build-and-deploy:
+    name: Build Docker & Deploy Website
     needs: backend-verification
     runs-on: ubuntu-latest
-
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -61,3 +74,89 @@ jobs:
       - name: Verify Docker Images
         run: |
           docker images
+
+      - name: Extract Static Website Files for GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          mkdir -p ./public_site
+          # Creates a temporary container from your frontend image to copy out the web files
+          docker create --name temp_frontend dreamsadverstings-frontend:ci
+          
+          # Tries copying from standard Nginx path (/usr/share/nginx/html) or Node path (/app/dist or /app)
+          docker cp temp_frontend:/usr/share/nginx/html/. ./public_site/ 2>/dev/null || \
+          docker cp temp_frontend:/app/dist/. ./public_site/ 2>/dev/null || \
+          docker cp temp_frontend:/app/build/. ./public_site/ 2>/dev/null || \
+          cp -r ./frontend/* ./public_site/
+          
+          docker rm temp_frontend
+
+      - name: Setup GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public_site
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  # -----------------------------------------------------------------
+  # JOB 3: Temporary Full-Stack Live Server (Backend + Frontend)
+  # Runs when you click "Run workflow" in the GitHub Actions tab
+  # -----------------------------------------------------------------
+  live-preview-server:
+    name: Run Full-Stack Live Preview (15 Mins)
+    if: github.event_name == 'workflow_dispatch'
+    needs: backend-verification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build & Start Backend and Frontend Containers
+        run: |
+          docker network create app-net
+          
+          docker build -f infrastructure/docker/Dockerfile.backend -t dreamsadverstings-backend:ci ./backend
+          docker build -f infrastructure/docker/Dockerfile.frontend -t dreamsadverstings-frontend:ci ./frontend
+          
+          # Start Backend on port 8000
+          docker run -d --name backend --network app-net -p 8000:8000 dreamsadverstings-backend:ci
+          
+          # Start Frontend (maps container port 80 or 3000 to host port 8080)
+          docker run -d --name frontend --network app-net -p 8080:80 -p 3000:3000 dreamsadverstings-frontend:ci
+          
+          sleep 5
+          docker ps
+
+      - name: Start Public Website Tunnel (Cloudflare)
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+          
+          echo "=================================================================="
+          echo "Starting Backend & Frontend Tunnels (Look for .trycloudflare.com URLs below)"
+          echo "=================================================================="
+          
+          # Detect whether frontend is listening on port 8080 (Nginx) or 3000 (Node)
+          if curl -s http://localhost:8080 > /dev/null; then
+            FRONTEND_PORT=8080
+          else
+            FRONTEND_PORT=3000
+          fi
+          
+          # Expose Backend API in background and log its URL
+          cloudflared tunnel --url http://localhost:8000 > backend_tunnel.log 2>&1 &
+          sleep 5
+          echo "BACKEND API URL:"
+          grep -o 'https://[-a-zA-Z0-9]*\.trycloudflare\.com' backend_tunnel.log || true
+          
+          echo "------------------------------------------------------------------"
+          echo "FRONTEND WEBSITE URL (Open this link in your browser):"
+          # Keep Frontend Website tunnel open for 15 minutes (900 seconds)
+          timeout 900 cloudflared tunnel --url http://localhost:$FRONTEND_PORT || true
